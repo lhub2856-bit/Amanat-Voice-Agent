@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Amanat Health — Voice Assistant for Lady Health Workers</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.4rem; }
+  button {
+    padding: 10px 20px; font-size: 1rem; margin-right: 8px; margin-top: 12px;
+    cursor: pointer; border-radius: 6px; border: 1px solid #ccc;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { margin: 16px 0; font-weight: bold; }
+  #log { margin-top: 20px; font-family: monospace; font-size: 0.85rem; white-space: pre-wrap; }
+  #log div { border-bottom: 1px solid #eee; padding: 6px 0; }
+</style>
+</head>
+<body>
+  <h1>Amanat Health — Voice Assistant for Lady Health Workers</h1>
+  <p>Click Start, allow microphone access, then speak a visit report naturally in Urdu, Punjabi, or English.</p>
+  <button id="startBtn">Start Listening</button>
+  <button id="stopBtn" disabled>Stop</button>
+  <div id="status">Not connected</div>
+  <div id="log"></div>
+  <script src="app.js"></script>
+</body>
+</html>
