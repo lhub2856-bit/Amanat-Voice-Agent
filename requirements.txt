@@ -1,0 +1,6 @@
+assemblyai
+google-genai
+edge-tts
+python-dotenv
+fastapi
+uvicorn[standard]
