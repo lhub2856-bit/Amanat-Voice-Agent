@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Amanat Health — Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0B0E14; --bg-elev: #12161F; --border: rgba(255,255,255,0.09);
+    --text: #F2F4F7; --text-soft: #8A93A3;
+    --amber: #FF9B45; --cyan: #2FD4C4; --danger: #FF5C72;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Inter", sans-serif; padding: 32px; }
+  h1 { font-family: "Space Grotesk", sans-serif; font-size: 1.4rem; margin: 0 0 24px; }
+  h2 { font-family: "Space Grotesk", sans-serif; font-size: 1.05rem; margin: 32px 0 14px; }
+  .stats { display: flex; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; }
+  .stat { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 18px 24px; }
+  .stat .num { font-family: "Space Grotesk", sans-serif; font-size: 1.8rem; font-weight: 700; }
+  .stat.escalated .num { color: var(--danger); }
+  .stat .label { color: var(--text-soft); font-size: 0.85rem; margin-top: 2px; }
+  .charts { display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px; margin-bottom: 12px; }
+  .chart-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .chart-card h3 { font-family: "Space Grotesk", sans-serif; font-size: 0.92rem; margin: 0 0 12px; color: var(--text-soft); font-weight: 600; }
+  .chart-card canvas { max-height: 220px; }
+  .chart-empty { color: var(--text-soft); font-size: 0.85rem; padding: 40px 0; text-align: center; }
+  table { width: 100%; border-collapse: collapse; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 14px; font-size: 0.88rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-soft); font-weight: 500; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr.escalate td { background: rgba(255,92,114,0.07); }
+  tr.escalate td:first-child { border-left: 3px solid var(--danger); }
+  .empty { color: var(--text-soft); padding: 24px; text-align: center; }
+  .refresh { color: var(--text-soft); font-size: 0.8rem; margin-top: 16px; }
+  /* The visits table is wide; on small screens it scrolls sideways inside its box
+     instead of pushing the whole page off-screen. */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
+  .table-scroll table { min-width: 760px; }
+  @media (max-width: 720px) {
+    body { padding: 20px 16px; }
+    .charts { grid-template-columns: 1fr; }
+    .stat { flex: 1 1 140px; padding: 14px 18px; }
+    th, td { padding: 9px 10px; }
+    #escToast { left: 16px; right: 16px; top: 12px; }
+  }
+
+  /* ---------- New-escalation toast ---------- */
+  #escToast {
+    position: fixed; top: 20px; right: 20px; z-index: 50;
+    background: var(--danger); color: #fff; padding: 14px 20px; border-radius: 10px;
+    font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 0.9rem;
+    box-shadow: 0 12px 30px -8px rgba(255,92,114,0.5);
+    transform: translateX(140%); transition: transform 0.35s ease;
+  }
+  #escToast.show { transform: translateX(0); }
+</style>
+</head>
+<body>
+  <div id="escToast">🚨 New escalation recorded</div>
+  <h1>Amanat Health — recorded visits</h1>
+  <div class="stats">
+    <div class="stat"><div class="num" id="totalNum">-</div><div class="label">Total visits</div></div>
+    <div class="stat escalated"><div class="num" id="escNum">-</div><div class="label">Escalated</div></div>
+    <div class="stat"><div class="num" id="rateNum">-</div><div class="label">Escalation rate</div></div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h3>Visits per day</h3>
+      <canvas id="perDayChart"></canvas>
+      <div class="chart-empty" id="perDayEmpty" style="display:none;">No data yet.</div>
+    </div>
+    <div class="chart-card">
+      <h3>Most common symptoms</h3>
+      <canvas id="symptomsChart"></canvas>
+      <div class="chart-empty" id="symptomsEmpty" style="display:none;">No data yet.</div>
+    </div>
+  </div>
+
+  <h2>All visits</h2>
+  <div class="table-scroll">
+  <table id="visitTable">
+    <thead>
+      <tr><th>Time</th><th>Patient</th><th>Type</th><th>Symptoms</th><th>Vitals</th><th>Notes &amp; details</th><th>Status</th></tr>
+    </thead>
+    <tbody id="visitBody"></tbody>
+  </table>
+  </div>
+  <div class="refresh">Refreshes every 5 seconds.</div>
+
+<script>
+let perDayChart, symptomsChart;
+let lastEscalatedCount = null;
+
+const chartColors = { amber: "#FF9B45", cyan: "#2FD4C4", danger: "#FF5C72", grid: "rgba(255,255,255,0.06)", text: "#8A93A3" };
+
+function showEscToast() {
+  const el = document.getElementById("escToast");
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 4500);
+}
+
+async function loadAnalytics() {
+  const res = await fetch("/api/analytics");
+  if (!res.ok) return;
+  const data = await res.json();
+
+  document.getElementById("rateNum").textContent = data.escalation_rate + "%";
+
+  const perDayEmpty = document.getElementById("perDayEmpty");
+  const perDayCanvas = document.getElementById("perDayChart");
+  if (data.visits_per_day.length === 0) {
+    perDayEmpty.style.display = "block"; perDayCanvas.style.display = "none";
+  } else {
+    perDayEmpty.style.display = "none"; perDayCanvas.style.display = "block";
+    const labels = data.visits_per_day.map(d => d.day);
+    const counts = data.visits_per_day.map(d => d.count);
+    if (perDayChart) perDayChart.destroy();
+    perDayChart = new Chart(perDayCanvas, {
+      type: "line",
+      data: { labels, datasets: [{ data: counts, borderColor: chartColors.cyan, backgroundColor: "rgba(47,212,196,0.15)", fill: true, tension: 0.3, pointRadius: 3 }] },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: chartColors.text, font: { size: 10 } }, grid: { color: chartColors.grid } },
+          y: { beginAtZero: true, ticks: { color: chartColors.text, stepSize: 1 }, grid: { color: chartColors.grid } },
+        },
+      },
+    });
+  }
+
+  const symptomsEmpty = document.getElementById("symptomsEmpty");
+  const symptomsCanvas = document.getElementById("symptomsChart");
+  if (data.top_symptoms.length === 0) {
+    symptomsEmpty.style.display = "block"; symptomsCanvas.style.display = "none";
+  } else {
+    symptomsEmpty.style.display = "none"; symptomsCanvas.style.display = "block";
+    const labels = data.top_symptoms.map(s => s.symptom);
+    const counts = data.top_symptoms.map(s => s.count);
+    if (symptomsChart) symptomsChart.destroy();
+    symptomsChart = new Chart(symptomsCanvas, {
+      type: "bar",
+      data: { labels, datasets: [{ data: counts, backgroundColor: chartColors.amber, borderRadius: 4 }] },
+      options: {
+        indexAxis: "y",
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { color: chartColors.text, stepSize: 1 }, grid: { color: chartColors.grid } },
+          y: { ticks: { color: chartColors.text, font: { size: 11 } }, grid: { display: false } },
+        },
+      },
+    });
+  }
+}
+
+function esc(text) {
+  return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function load() {
+  const res = await fetch("/api/visits");
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById("totalNum").textContent = data.stats.total;
+  document.getElementById("escNum").textContent = data.stats.escalated;
+
+  if (lastEscalatedCount !== null && data.stats.escalated > lastEscalatedCount) {
+    showEscToast();
+  }
+  lastEscalatedCount = data.stats.escalated;
+
+  const body = document.getElementById("visitBody");
+  body.innerHTML = "";
+  if (data.visits.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">No visits recorded yet.</td></tr>';
+    return;
+  }
+  for (const v of data.visits) {
+    const tr = document.createElement("tr");
+    if (v.escalate) tr.className = "escalate";
+    const symptoms = JSON.parse(v.symptoms || "[]").join(", ") || "—";
+    const vitals = [v.vitals_temp, v.vitals_bp].filter(Boolean).join(" / ") || "—";
+    const time = new Date(v.recorded_at * 1000).toLocaleString();
+    const details = Object.entries(JSON.parse(v.details || "{}"))
+      .map(([k, val]) => `${k.replace(/_/g, " ")}: ${Array.isArray(val) ? val.join(", ") : val}`);
+    const notes = [v.notes, ...details].filter(Boolean).join("; ") || "—";
+    // Everything here came from speech, so escape it before it goes into innerHTML.
+    tr.innerHTML = `
+      <td>${esc(time)}</td>
+      <td>${esc(v.patient_name || "(no name)")}</td>
+      <td>${esc((v.visit_type || "general").replace(/_/g, " "))}</td>
+      <td>${esc(symptoms)}</td>
+      <td>${esc(vitals)}</td>
+      <td>${esc(notes)}</td>
+      <td>${esc(v.escalate ? "Escalated: " + (v.reason || "") : "Recorded")}</td>
+    `;
+    body.appendChild(tr);
+  }
+}
+load();
+loadAnalytics();
+setInterval(load, 5000);
+setInterval(loadAnalytics, 10000);
+</script>
+</body>
+</html>
